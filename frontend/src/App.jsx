@@ -4,8 +4,10 @@ import io from "socket.io-client";
 import Editor from "@monaco-editor/react";
 import * as MonacoCollabExt from "@convergencelabs/monaco-collab-ext";
 
-//const socket = io("http://localhost:5000"); // Change to your server address
-const socket = io("https://chalega-tu.onrender.com"); 
+// Connect to the server
+const socket = io("https://chalega-tu.onrender.com");
+//const socket = io("http://localhost:5000");
+
 const App = () => {
   const [joined, setJoined] = useState(false);
   const [roomId, setRoomId] = useState("");
@@ -15,32 +17,47 @@ const App = () => {
   const [users, setUsers] = useState([]);
   const editorRef = useRef(null);
   const cursorManagerRef = useRef(null);
-  const cursorMap = useRef({}); // To keep track of cursors by userId
+  const selectionManagerRef = useRef(null);
+  const cursorMap = useRef({}); // Map of user cursors
 
   useEffect(() => {
-    // Handle users joining the room
+    // Listen to users joining the room
     socket.on("userJoined", (users) => {
       console.log("Users in room:", users);
       setUsers(users);
     });
 
-    // Handle remote code updates
+    // Listen to remote code updates
     socket.on("codeUpdate", (newCode) => {
       console.log("Code updated:", newCode);
       setCode(newCode);
     });
 
-    // Handle cursor position updates from other users
+    // Handle cursor updates from other users
     socket.on("cursorUpdate", ({ userId, position }) => {
-      console.log(`Cursor update from user ${userId}: Position ${position}`);
       if (cursorManagerRef.current) {
-        // Create or update the cursor for the user
+        // Update or create cursor for the user
         let cursor = cursorMap.current[userId];
         if (!cursor) {
-          cursor = cursorManagerRef.current.addCursor(userId, getRandomColor(), userId.slice(0, 8));
+          cursor = cursorManagerRef.current.addCursor(
+            userId,
+            getRandomColor(),
+            userId
+          );
           cursorMap.current[userId] = cursor;
         }
         cursor.setOffset(position);
+      }
+    });
+
+    // Handle selection updates from other users
+    socket.on("selectionUpdate", ({ userId, selection }) => {
+      if (selectionManagerRef.current) {
+        selectionManagerRef.current.setSelectionOffsets(
+          userId,
+          selection.start,
+          selection.end
+        );
       }
     });
 
@@ -48,11 +65,11 @@ const App = () => {
       socket.off("userJoined");
       socket.off("codeUpdate");
       socket.off("cursorUpdate");
+      socket.off("selectionUpdate");
     };
   }, []);
 
   const joinRoom = () => {
-    console.log(`Joining room: ${roomId}, Username: ${userName}`);
     if (roomId && userName) {
       socket.emit("join", { roomId, userName });
       setJoined(true);
@@ -60,7 +77,6 @@ const App = () => {
   };
 
   const leaveRoom = () => {
-    console.log(`Leaving room: ${roomId}`);
     socket.emit("leaveRoom");
     setJoined(false);
     setRoomId("");
@@ -70,41 +86,67 @@ const App = () => {
   };
 
   const handleCodeChange = (newCode) => {
-    console.log("Code changed locally:", newCode);
     setCode(newCode);
     socket.emit("codeChange", { roomId, code: newCode });
   };
 
   const editorDidMount = (editor) => {
-    console.log("Editor mounted");
     editorRef.current = editor;
 
-    // Initialize the cursor manager
+    // Initialize cursor and selection managers
     cursorManagerRef.current = new MonacoCollabExt.RemoteCursorManager({
       editor,
       tooltips: true,
       tooltipDuration: 2,
     });
 
-    // Create a local cursor for the user
+    selectionManagerRef.current = new MonacoCollabExt.RemoteSelectionManager({
+      editor,
+    });
+
+    // Create a local cursor for the current user
     const localCursor = cursorManagerRef.current.addCursor(userName, "red", userName);
 
-    // Emit local cursor movements to the server
+    // Emit cursor and selection changes to the server
     editor.onDidChangeCursorPosition((e) => {
       const offset = editor.getModel().getOffsetAt(e.position);
-      console.log(`Local cursor moved: Position ${offset}`);
-      socket.emit("cursorMove", { roomId, userId: userName, position: offset });
-
+      if (roomId) {
+        socket.emit("cursorMove", { roomId, userId: userName, position: offset });
+      }
       if (localCursor) {
         localCursor.setOffset(offset);
       }
     });
+
+    editor.onDidChangeCursorSelection((e) => {
+      const startOffset = editor.getModel().getOffsetAt(e.selection.getStartPosition());
+      const endOffset = editor.getModel().getOffsetAt(e.selection.getEndPosition());
+      if (roomId) {
+        socket.emit("selectionChange", {
+          roomId,
+          userId: userName,
+          selection: { start: startOffset, end: endOffset },
+        });
+      }
+      if (selectionManagerRef.current) {
+        selectionManagerRef.current.setSelectionOffsets(
+          userName,
+          startOffset,
+          endOffset
+        );
+      }
+    });
+
+    // Ensure Monaco Editor resizes correctly when the window is resized
+    window.addEventListener('resize', () => {
+      editor.layout();
+    });
+
+    // Make sure the editor resizes on initial mount
+    editor.layout();
   };
 
-  // Generate a random color for each user
-  const getRandomColor = () => {
-    return `#${Math.floor(Math.random() * 16777215).toString(16)}`;
-  };
+  const getRandomColor = () => `#${Math.floor(Math.random() * 16777215).toString(16)}`;
 
   if (!joined) {
     return (
@@ -136,22 +178,36 @@ const App = () => {
         <h3>Users in Room:</h3>
         <ul>
           {users.map((user, index) => (
-            <li key={index}>{user.slice(0, 8)}...</li>
+            <li key={index}>{user}</li>
           ))}
         </ul>
         <button onClick={leaveRoom}>Leave Room</button>
       </div>
 
-      <div className="editor-wrapper">
-        <Editor
-          height="100%"
-          defaultLanguage={language}
-          language={language}
-          value={code}
-          onChange={handleCodeChange}
-          theme="vs-dark"
-          onMount={editorDidMount}
-        />
+      <div className="editor-wrapper" style={{ display: 'flex', width: '100%' }}>
+        {/* Left editor: Editable */}
+        <div style={{ flex: 1 }}>
+          <Editor
+            height="100%"
+            defaultLanguage={language}
+            language={language}
+            value={code}
+            onChange={handleCodeChange}
+            theme="vs-dark"
+            onMount={editorDidMount}
+          />
+        </div>
+
+        {/* Right editor: Synchronized */}
+        <div style={{ flex: 1 }}>
+          <Editor
+            height="100%"
+            language={language}
+            value={code}
+            theme="vs-dark"
+            options={{ readOnly: true }}
+          />
+        </div>
       </div>
     </div>
   );
