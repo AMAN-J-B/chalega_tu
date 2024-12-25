@@ -4,8 +4,8 @@ import io from "socket.io-client";
 import Editor from "@monaco-editor/react";
 import * as MonacoCollabExt from "@convergencelabs/monaco-collab-ext";
 
-const socket = io("http://localhost:5000"); // Change to your server address
-
+//const socket = io("http://localhost:5000"); // Change to your server address
+const socket = io("https://chalega-tu.onrender.com"); 
 const App = () => {
   const [joined, setJoined] = useState(false);
   const [roomId, setRoomId] = useState("");

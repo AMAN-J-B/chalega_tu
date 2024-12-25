@@ -14,8 +14,8 @@ const io = new Server(server, {
 
 const rooms = new Map();
 const port = process.env.PORT || 5000;
- const url = `http://localhost:5000`;
-//const url = `https://chalega-tu.onrender.com`;
+// const url = `http://localhost:5000`;
+const url = `https://chalega-tu.onrender.com`;
 const reloadInterval = 30000;
 
 // Periodic website reload
