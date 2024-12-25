@@ -4,9 +4,7 @@ import io from "socket.io-client";
 import Editor from "@monaco-editor/react";
 import * as MonacoCollabExt from "@convergencelabs/monaco-collab-ext";
 
-// const socket = io("http://localhost:5000");
-const socket = io("https://chalega-tu.onrender.com");
-
+const socket = io("http://localhost:5000"); // Change to your server address
 
 const App = () => {
   const [joined, setJoined] = useState(false);
@@ -15,59 +13,46 @@ const App = () => {
   const [language, setLanguage] = useState("javascript");
   const [code, setCode] = useState("// start code here");
   const [users, setUsers] = useState([]);
-  const editorRef = useRef(null); // Reference to the editor
-  const cursorManagerRef = useRef(null); // Reference to RemoteCursorManager
+  const editorRef = useRef(null);
+  const cursorManagerRef = useRef(null);
+  const cursorMap = useRef({}); // To keep track of cursors by userId
 
   useEffect(() => {
+    // Handle users joining the room
     socket.on("userJoined", (users) => {
+      console.log("Users in room:", users);
       setUsers(users);
     });
 
+    // Handle remote code updates
     socket.on("codeUpdate", (newCode) => {
+      console.log("Code updated:", newCode);
       setCode(newCode);
     });
 
+    // Handle cursor position updates from other users
     socket.on("cursorUpdate", ({ userId, position }) => {
-      // Update remote cursor position
+      console.log(`Cursor update from user ${userId}: Position ${position}`);
       if (cursorManagerRef.current) {
-        const cursor = cursorManagerRef.current.getCursor(userId);
-        if (cursor) {
-          cursor.setOffset(position);
+        // Create or update the cursor for the user
+        let cursor = cursorMap.current[userId];
+        if (!cursor) {
+          cursor = cursorManagerRef.current.addCursor(userId, getRandomColor(), userId.slice(0, 8));
+          cursorMap.current[userId] = cursor;
         }
+        cursor.setOffset(position);
       }
-    });
-
-    socket.on("userTyping", (user) => {
-      setTyping(`${user.slice(0, 8)}... is Typing`);
-      setTimeout(() => setTyping(""), 2000);
-    });
-
-    socket.on("languageUpdate", (newLanguage) => {
-      setLanguage(newLanguage);
     });
 
     return () => {
       socket.off("userJoined");
       socket.off("codeUpdate");
       socket.off("cursorUpdate");
-      socket.off("userTyping");
-      socket.off("languageUpdate");
-    };
-  }, []);
-
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      socket.emit("leaveRoom");
-    };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-
-    return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   }, []);
 
   const joinRoom = () => {
+    console.log(`Joining room: ${roomId}, Username: ${userName}`);
     if (roomId && userName) {
       socket.emit("join", { roomId, userName });
       setJoined(true);
@@ -75,6 +60,7 @@ const App = () => {
   };
 
   const leaveRoom = () => {
+    console.log(`Leaving room: ${roomId}`);
     socket.emit("leaveRoom");
     setJoined(false);
     setRoomId("");
@@ -84,39 +70,40 @@ const App = () => {
   };
 
   const handleCodeChange = (newCode) => {
+    console.log("Code changed locally:", newCode);
     setCode(newCode);
     socket.emit("codeChange", { roomId, code: newCode });
-    socket.emit("typing", { roomId, userName });
-  };
-
-  const handleLanguageChange = (e) => {
-    const newLanguage = e.target.value;
-    setLanguage(newLanguage);
-    socket.emit("languageChange", { roomId, language: newLanguage });
   };
 
   const editorDidMount = (editor) => {
+    console.log("Editor mounted");
     editorRef.current = editor;
 
-    // Initialize RemoteCursorManager
+    // Initialize the cursor manager
     cursorManagerRef.current = new MonacoCollabExt.RemoteCursorManager({
       editor,
       tooltips: true,
       tooltipDuration: 2,
     });
 
-    // Add current user's cursor
+    // Create a local cursor for the user
     const localCursor = cursorManagerRef.current.addCursor(userName, "red", userName);
 
+    // Emit local cursor movements to the server
     editor.onDidChangeCursorPosition((e) => {
       const offset = editor.getModel().getOffsetAt(e.position);
+      console.log(`Local cursor moved: Position ${offset}`);
       socket.emit("cursorMove", { roomId, userId: userName, position: offset });
 
-      // Update your cursor position locally
       if (localCursor) {
         localCursor.setOffset(offset);
       }
     });
+  };
+
+  // Generate a random color for each user
+  const getRandomColor = () => {
+    return `#${Math.floor(Math.random() * 16777215).toString(16)}`;
   };
 
   if (!joined) {
@@ -145,42 +132,24 @@ const App = () => {
   return (
     <div className="editor-container">
       <div className="sidebar">
-        <div className="room-info">
-          <h2>Code Room: {roomId}</h2>
-        </div>
+        <h2>Code Room: {roomId}</h2>
         <h3>Users in Room:</h3>
         <ul>
           {users.map((user, index) => (
             <li key={index}>{user.slice(0, 8)}...</li>
           ))}
         </ul>
-        <select
-          className="language-selector"
-          value={language}
-          onChange={handleLanguageChange}
-        >
-          <option value="javasript">JavaScript</option>
-          <option value="python">Python</option>
-          <option value="java">Java</option>
-          <option value="cpp">C++</option>
-        </select>
-        <button className="leave-button" onClick={leaveRoom}>
-          Leave Room
-        </button>
+        <button onClick={leaveRoom}>Leave Room</button>
       </div>
 
       <div className="editor-wrapper">
         <Editor
-          height={"100%"}
+          height="100%"
           defaultLanguage={language}
           language={language}
           value={code}
           onChange={handleCodeChange}
           theme="vs-dark"
-          options={{
-            minimap: { enabled: false },
-            fontSize: 14,
-          }}
           onMount={editorDidMount}
         />
       </div>
