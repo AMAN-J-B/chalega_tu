@@ -117,6 +117,12 @@ const App = () => {
     setTimeout(() => setCopySuccess(""), 2000);
   };
 
+  const handleCodeChange = (newCode) => {
+    setCode(newCode);
+    socket.emit("codeChange", { roomId, code: newCode });
+    socket.emit("typing", { roomId, userName });
+  };
+
   const handleLanguageChange = (e) => {
     const newLanguage = e.target.value;
     setLanguage(newLanguage);
