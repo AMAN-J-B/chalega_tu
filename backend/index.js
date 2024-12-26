@@ -43,7 +43,7 @@ io.on("connection", (socket) => {
     if (currentRoom) {
       socket.leave(currentRoom);
       rooms.get(currentRoom)?.delete(currentUser);
-      io.to(currentRoom).emit("userUpdate", Array.from(rooms.get(currentRoom) || []));
+      io.to(currentRoom).emit("userJoined", Array.from(rooms.get(currentRoom) || []));
     }
 
     currentRoom = roomId;
@@ -55,7 +55,7 @@ io.on("connection", (socket) => {
     }
     rooms.get(roomId).users.add(userName);
 
-    io.to(roomId).emit("userUpdate", Array.from(rooms.get(roomId).users));
+    io.to(roomId).emit("userJoined", Array.from(rooms.get(roomId).users));
     console.log(`Users in room ${roomId}:`, Array.from(rooms.get(roomId).users));
     socket.emit("codeUpdate", rooms.get(roomId).code); // Send current code to the user
   });
@@ -84,7 +84,7 @@ io.on("connection", (socket) => {
     console.log(`User ${currentUser} leaving room ${currentRoom}`);
     if (currentRoom && currentUser) {
       rooms.get(currentRoom)?.users.delete(currentUser);
-      io.to(currentRoom).emit("userUpdate", Array.from(rooms.get(currentRoom).users));
+      io.to(currentRoom).emit("userJoined", Array.from(rooms.get(currentRoom).users));
       socket.leave(currentRoom);
     }//inko andar rkna h 
     currentRoom = null;
@@ -105,7 +105,7 @@ io.on("connection", (socket) => {
     console.log(`User disconnected: ${socket.id}`);
     if (currentRoom && currentUser) {
       rooms.get(currentRoom)?.users.delete(currentUser);
-      io.to(currentRoom).emit("userUpdate", Array.from(rooms.get(currentRoom).users));
+      io.to(currentRoom).emit("userJoined", Array.from(rooms.get(currentRoom).users));
     }
   });
 });
