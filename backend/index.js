@@ -86,10 +86,19 @@ io.on("connection", (socket) => {
       rooms.get(currentRoom)?.users.delete(currentUser);
       io.to(currentRoom).emit("userUpdate", Array.from(rooms.get(currentRoom).users));
       socket.leave(currentRoom);
-    }
+    }//inko andar rkna h 
     currentRoom = null;
     currentUser = null;
   });
+
+  socket.on("typing", ({ roomId, userName }) => {
+    socket.to(roomId).emit("userTyping", userName);
+  });
+
+  socket.on("languageChange", ({ roomId, language }) => {
+    io.to(roomId).emit("languageUpdate", language);
+  });
+
 
   // Handle user disconnect
   socket.on("disconnect", () => {
