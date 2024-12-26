@@ -15,6 +15,9 @@ const App = () => {
   const [language, setLanguage] = useState("javascript");
   const [code, setCode] = useState("// start code here");
   const [users, setUsers] = useState([]);
+  const [copySuccess, setCopySuccess] = useState("");
+  const [typing, setTyping] = useState("");
+  const [output, setOutput] = useState("");
   const editorRef = useRef(null);
   const cursorManagerRef = useRef(null);
   const selectionManagerRef = useRef(null);
@@ -31,6 +34,15 @@ const App = () => {
     socket.on("codeUpdate", (newCode) => {
       console.log("Code updated:", newCode);
       setCode(newCode);
+    });
+
+    socket.on("userTyping", (user) => {
+      setTyping(`${user.slice(0, 8)}... is Typing`);
+      setTimeout(() => setTyping(""), 2000);
+    });
+
+    socket.on("languageUpdate", (newLanguage) => {
+      setLanguage(newLanguage);
     });
 
     // Handle cursor updates from other users
@@ -66,6 +78,19 @@ const App = () => {
       socket.off("codeUpdate");
       socket.off("cursorUpdate");
       socket.off("selectionUpdate");
+      socket.off("languageUpdate");
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      socket.emit("leaveRoom");
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   }, []);
 
@@ -83,12 +108,48 @@ const App = () => {
     setUserName("");
     setCode("// start code here");
     setLanguage("javascript");
+    setOutput("");
   };
 
-  const handleCodeChange = (newCode) => {
-    setCode(newCode);
-    socket.emit("codeChange", { roomId, code: newCode });
+  const copyRoomId = () => {
+    navigator.clipboard.writeText(roomId);
+    setCopySuccess("Copied!");
+    setTimeout(() => setCopySuccess(""), 2000);
   };
+
+  const handleLanguageChange = (e) => {
+    const newLanguage = e.target.value;
+    setLanguage(newLanguage);
+    socket.emit("languageChange", { roomId, language: newLanguage });
+  };
+
+  const runCode = async () => {
+    try {
+      const response = await fetch("https://emkc.org/api/v2/piston/execute", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          language: language,
+          version: "*", // Use "*" to select the latest version, or specify a version like "3.10.0"
+          files: [
+            {
+              content: code, // 'code' holds the source code from your editor
+            },
+          ],
+        }),
+      });
+  
+  const result = await response.json();
+
+      setOutput(result.run.output || "No output received.");
+    } catch (error) {
+      setOutput("Error running code: " + error.message);
+    }
+  };
+  
 
   const editorDidMount = (editor) => {
     editorRef.current = editor;
@@ -174,21 +235,39 @@ const App = () => {
   return (
     <div className="editor-container">
       <div className="sidebar">
+        <div className="room-info">
+          
         <h2>Code Room: {roomId}</h2>
+          <button onClick={copyRoomId} className="copy-button">
+            Copy Id
+          </button>
+          {copySuccess && <span className="copy-success">{copySuccess}</span>}
+        </div>
         <h3>Users in Room:</h3>
         <ul>
           {users.map((user, index) => (
-            <li key={index}>{user}</li>
+            <li key={index}>{user.slice(0, 8)}...</li>
           ))}
         </ul>
-        <button onClick={leaveRoom}>Leave Room</button>
+        <p className="typing-indicator">{typing}</p>
+        <select
+          className="language-selector"
+          value={language}
+          onChange={handleLanguageChange}
+        >
+          <option value="javascript">JavaScript</option>
+          <option value="python">Python</option>
+          <option value="java">Java</option>
+          <option value="cpp">C++</option>
+        </select>
+        <button className = "leave-button" onClick={leaveRoom}>Leave Room</button>
       </div>
 
       <div className="editor-wrapper" style={{ display: 'flex', width: '100%' }}>
         {/* Left editor: Editable */}
         <div style={{ flex: 1 }}>
           <Editor
-            height="100%"
+            height="80%"
             defaultLanguage={language}
             language={language}
             value={code}
@@ -201,12 +280,18 @@ const App = () => {
         {/* Right editor: Synchronized */}
         <div style={{ flex: 1 }}>
           <Editor
-            height="100%"
+            height="80%"
             language={language}
             value={code}
             theme="vs-dark"
             options={{ readOnly: true }}
           />
+          <button className="run-button" onClick={runCode}>
+          Run Code
+        </button>
+        <div className="output-container">
+          <h3>Output:</h3>
+          <pre>{output}</pre>
         </div>
       </div>
     </div>
